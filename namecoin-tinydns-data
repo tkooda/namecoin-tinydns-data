@@ -1,0 +1,244 @@
+#!/usr/bin/python
+
+
+## Thor J. Kooda : namecoin-tinydns-data : v0.02
+##  - connect to `namecoind` RPC interface and print out DNS records in tinydns-data format
+
+
+## DEPENDS:
+##  - http://json-rpc.org/
+
+
+## NOTES:
+##  - implements v2.0 of spec: http://dot-bit.org/Namespace:Domain_names_v2.0
+
+
+## TODO:
+##  - sanitize all input!
+##  - aposterphie's in json value data?
+##  - sanitize special chars (e.g. domains like "d/+"! -to protect tinydns-data format.  -quick/incorrect isalnum() check for now..)
+##  - sanitize against \n in values (print all non-alphanum as octal?)
+##  - why support hostnames ending in "@" as it's the same as ending in non-period??
+##  - LOC records: http://en.wikipedia.org/wiki/List_of_DNS_record_types
+##  - decide what tinydns-data DNS record looks like for NS delegation
+##  - specify TTL, w/dynamic option based on expiry
+##  - lots!
+
+
+## BUGS:
+##  - plenty!
+##  - resolve_map() needs better logic
+##  - isalnum() too aggressive for domain
+##  - fix ns generation for: "..cz.bit::ns0.web-sweet-web.net"
+
+
+# HISTORY:
+#  - 2011-06-23 : initial version
+#  - 2012-09-14 : updated for namecoin DNS spec v2.0
+
+
+
+import sys
+import re
+from jsonrpc import ServiceProxy
+try: import simplejson as json
+except ImportError: import json
+
+DEBUG = 0
+
+TLD = "bit"
+#TTL = 86400 # TODO: shrink based on "expire_in" field if it's smaller
+
+
+
+def do_debug( level, *arg ):
+    if level <= DEBUG:
+        print "DEBUG:", arg
+
+
+def make_list( var ):  # FIXME: there's probably a more elegant way (lambda?) to do this
+    if type( var ) is list:
+        return var
+    return [ var ]
+
+
+
+# TODO: FIXME: rewrite later..
+def resolve_map( zone, subdomains, map_dict ):
+#    print
+#    do_debug( 1, "3:   resolve_map:", zone,":", subdomains ,":", map_dict )
+    fqdn = ".".join( subdomains + [ zone, TLD ] )
+    for k,v in map_dict.items():
+#        do_debug( 1, "resolve_map/key:value:", k,":", v )
+        if k == "map":
+            do_debug( 1, "NEVER GET HERE???? (no directly nested maps??)" )
+            resolve_map( zone, subdomains, v )
+        else:
+            if type( v ) is dict:
+                process_entries( zone, [ k ] + subdomains, v )
+            else:
+#                do_debug( 1, "4: map item:", k, "+", v )
+                if k:
+                    print "+%s:%s" % ( ".".join( [ k, fqdn ] ), v )
+                else:
+                    print "+%s:%s" % ( fqdn, v )
+#NO!: this is just a map item, not another map:                process_entry( zone, [ k ] + subdomains, k, v ) 
+
+
+
+def expand_hostname( hostname, zone, subdomains ):
+    if hostname.endswith( "." ):
+        return hostname
+    elif hostname == "":
+        return ".".join( [ subdomains[-1], zone, TLD ] )
+#    elif hostname.endswith( "@" ):
+#        return ".".join( [ hostname.strip(".@"), zone, TLD ] ) # TODO: what's the point of also supporting ending in a "@"?? -as ending in a "@" is the same as ending in any non-period character when expanding hostnames, no?
+    return ".".join( [ hostname.strip(".@"), zone, TLD ] ) # same as "...@"
+
+
+
+def process_entries( zone, subdomains, entries ):
+    # guard against int/str in value from json.loads() ?
+    if not type( entries ) in [ list, dict ]:
+        do_debug( 3, "WARNING: entries not a list/dict:", entries )
+        return
+    
+    for entry in entries:
+        try:
+            process_entry( zone, subdomains, entry, entries[ entry ] )
+        except:
+            do_debug( 1, "ERROR: process_entries(): entry:", entry )
+            pass
+        do_debug( 1, "" )
+
+
+
+def process_entry( zone, subdomains, entry, entry_data ):
+    do_debug( 1, "process_entry(): zone:", zone )
+    do_debug( 1, "process_entry(): subdomains:", subdomains )
+    do_debug( 1, "process_entry(): entry:", entry )
+    do_debug( 1, "process_entry(): entry_data:", entry_data )
+    
+    fqdn = ".".join( subdomains + [ zone, TLD ] )
+    
+    # FIXME: print NS records needed to tell tinydns to answer for this zone ..
+    
+    if entry == "ip":
+        for ip in make_list( entry_data ):
+            print "+%s:%s" % ( fqdn, ip )
+    
+    elif entry == "ip6":
+        for ip in make_list( entry_data ):
+            print ":%s:28:%s" % ( fqdn, "\\072".join( ip.split(":") ) )
+    
+    elif entry == "service":
+        for service,protocol,priority,weight,port,target in make_list( entry_data ):
+            hostname = expand_hostname( target, zone, subdomains )
+            srv =  ".".join( [ "_" + service, "_" + protocol ] + subdomains + [ zone, TLD ] )
+            
+            srvhost = ""
+            for i in hostname.split("."):
+                srvhost += "\\%03o%s" % ( len(i) , i )
+            print ":%s:33:\\%03o\\%03o\\%03o\\%03o\\%03o\\%03o%s\\000" \
+                % ( srv,
+                    int( priority ) >> 8 ,
+                    int( priority ) & 0xFF ,
+                    int( weight ) >> 8 ,
+                    int( weight ) & 0xFF ,
+                    int( port ) >> 8 ,
+                    int( port ) & 0xFF ,
+                    srvhost )
+                
+            # derive MX record from "smtp" SRV record ..
+            if service == "smtp":
+                print "@%s::%s:%s" % ( fqdn, hostname, priority )
+    
+    elif entry == "alias":
+        for hostname in make_list( entry_data ):
+            hostname = expand_hostname( hostname, zone, subdomains )
+            do_debug( 1, "FIXME: C%s:%s" % ( fqdn, hostname ) )
+## tkooda : 2011-06-24 : BROKEN: "C*.aliastest1.bit:*.aliastest1.bit" , don't want to include subdomains????  wtf...
+            print "C%s:%s" % ( fqdn, hostname )
+    
+    elif entry == "translate":
+        for hostname in make_list( entry_data ):
+            hostname = expand_hostname( hostname, zone, subdomains )
+            print ":%s:39:%s" % ( fqdn, hostname )
+    
+    elif entry == "dns" or entry == "ns":
+        for host in make_list( entry_data ):
+            print ".%s::%s" % ( fqdn, host )
+    
+    elif entry == "email":
+        for email in make_list( entry_data ):
+            print "Z%s:%s" % ( fqdn, ".".join( email.split( "@", 1 ) ) )
+    
+    elif entry == "tor":
+        for address in make_list( entry_data ):
+            print "C%s:%s" % ( fqdn, address ) # CNAME for tor addresses?
+    
+    elif entry == "i2p":
+        for address in make_list( entry_data[ "name" ] ):
+            print "C%s:%s" % ( fqdn, address ) # CNAME for i2p names?
+    
+    elif entry == "map":
+        resolve_map( zone, subdomains, entry_data )
+    
+    elif entry == "loc":
+        # FIXME: TODO: write "loc" records later
+        return
+    
+    elif entry == "delegate":
+        # FIXME: TODO: write "delegate" records later
+        return
+    
+    elif entry == "import":
+        # FIXME: TODO: write "import" records later
+        return
+    
+    elif entry == "map":
+        resolve_map( zone, subdomains, entry_data )
+    
+    elif entry in [ "freenet", "info" ]:
+        return # does not correspond with a DNS record
+    
+    else:
+        print "FIXME: TODO: PROCESS:", entry, ":", entry_data
+
+
+
+if __name__ == "__main__":
+    import os
+    if len( sys.argv ) < 3:
+        print >>sys.stderr, "usage: %s <namecoind_url> <nameserver_ips..>" % os.path.basename( sys.argv[0] )
+        print >>sys.stderr, " e.g.: %s http://MyUsername:MyPassword@127.0.0.1:8336 1.2.3.4 5.6.7.8" % os.path.basename( sys.argv[0] )
+        sys.exit( 2 )
+    
+    nameserver_ips = sys.argv[ 2: ]
+    
+    pattern_domain = re.compile( '^d/([a-z0-9](?:[a-z0-9-]{0,251}[a-z0-9])?)$', re.I )
+    
+    access = ServiceProxy( sys.argv[ 1 ] )
+    items = access.name_scan("",1000000)
+    
+    for item in items:
+        do_debug( 1, "##########################################################" )
+        do_debug( 1, "item:", item )
+        
+        try:
+            if not item[ "name" ].startswith( "d/" ):
+                continue
+            name = pattern_domain.match( item[ "name" ] ).group( 1 )
+            value = json.loads( item[ "value" ][ :1023 ] )
+        except:
+            do_debug( 6, "WARNING: invalid name/value from item:", item )
+            continue
+        
+        do_debug( 1, "value:", json.dumps( value, indent=2 ) )
+        process_entries( name, [], value )
+        
+        for ns_ip in nameserver_ips: # TODO: FIXME: more flexible IPs vs. names
+            print ".%s:%s" % ( ".".join( [ name, TLD ] ), ns_ip )
+        
+        do_debug( 1, "" )
+
