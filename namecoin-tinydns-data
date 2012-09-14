@@ -203,7 +203,7 @@ def process_entry( zone, subdomains, entry, entry_data ):
         return # does not correspond with a DNS record
     
     else:
-        print "FIXME: TODO: PROCESS:", entry, ":", entry_data
+        do_debug( 5, "FIXME: TODO: PROCESS:", entry, ":", entry_data )
 
 
 
