@@ -17,7 +17,7 @@ INSTALL WITH:
   git clone https://github.com/tkooda/namecoin-tinydns-data
   cd namecoin-tinydns-data/
   sudo python setup.py install
-  sudo cp tinydns-Makefile /service/tinydns/root/Makefile
+  sudo cp tinydns-Makefile /service/tinydns/root/Makefile  # WARNING: will overwrite 'data' file.
 ```
 
 
