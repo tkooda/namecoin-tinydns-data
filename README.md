@@ -4,6 +4,11 @@ namecoin-tinydns-data
 Generate tinydns DNS data file for namecoin's *.bit TLD
 
 
+REQUIRES:
+---------
+ - 'tinydns' installed and supervised as /service/tinydns/
+   (http://cr.yp.to/djbdns/tinydns.html)
+
 
 INSTALL WITH:
 -------------
@@ -12,6 +17,7 @@ INSTALL WITH:
   git clone https://github.com/tkooda/namecoin-tinydns-data
   cd namecoin-tinydns-data/
   sudo python setup.py install
+  sudo cp tinydns-Makefile /service/tinydns/root/Makefile
 ```
 
 
@@ -20,8 +26,15 @@ EXAMPLE USAGE:
 
 ```
   cd /service/tinydns/root/
-  sudo namecoin-tinydns-data http://MyUsername:MyPassword@127.0.0.1:8336 1.2.3.4 > data
   sudo make
 ```
 
-(presuming 'tinydns' is already supervised/running on "1.2.3.4") :
+
+ADDITIONAL HELP:
+----------------
+To be able to perform local DNS queries through a djbdns dnscache:
+```
+  ln -s /service/tinydns/env/IP /service/dnscache/root/servers/bit
+  sv t /service/dnscache/
+  echo 'nameserver 127.0.0.1' > /etc/resolv.conf
+```
