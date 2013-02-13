@@ -2,5 +2,5 @@ data.cdb: data namecoin
 	/usr/bin/tinydns-data
 
 namecoin:
-	namecoin-tinydns-data "http://`awk -F '=' '/^rpcuser=/{print $$2}' ~/.namecoin/bitcoin.conf`:`awk -F '=' '/^rpcpassword=/{print $$2}' ~/.namecoin/bitcoin.conf`@127.0.0.1:8336" "`cat /etc/sv/tinydns/env/IP`" > data.tmp && mv -vf data.tmp data
+	namecoin-tinydns-data "http://`awk -F '=' '/^rpcuser=/{print $$2}' ~/.namecoin/bitcoin.conf`:`awk -F '=' '/^rpcpassword=/{print $$2}' ~/.namecoin/bitcoin.conf`@127.0.0.1:8336" "`cat /service/tinydns/env/IP`" > data.tmp && mv -vf data.tmp data
 
